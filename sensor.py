@@ -5,22 +5,20 @@
 
 from pimoroni_i2c import PimoroniI2C
 from breakout_bme68x import BreakoutBME68X
+from config import I2C_SDA_PIN, I2C_SCL_PIN, SENSOR_RANGES
 from utils import handle_error, is_valid_sensor_value
 
 class DummyBME68X:
     """Capteur factice pour les tests ou en cas d'erreur."""
 
-    def read_temperature(self):
-        return 20.0
-
-    def read_humidity(self):
-        return 50.0
-
-    def read_pressure(self):
-        return 101325  # en Pa
-
-    def read_gas_resistance(self):
-        return 100000
+    def read(self):
+        """Retourne des données factices."""
+        return {
+            "temperature": 20.0,
+            "humidity": 50.0,
+            "pressure": 101325,  # en Pa
+            "gas": 100000        # en Ω
+        }
 
 class SensorManager:
     """Gère la lecture et la validation des données du capteur BME680."""
@@ -33,13 +31,13 @@ class SensorManager:
     def init_sensor(self):
         """Initialise le capteur BME680."""
         try:
-            i2c = PimoroniI2C(sda=4, scl=5)
+            i2c = PimoroniI2C(sda=I2C_SDA_PIN, scl=I2C_SCL_PIN)
             self.bme = BreakoutBME68X(i2c)
             print("BME680 initialisé avec succès !")
             # Tester la lecture initiale
             test_data = self.read_raw_data()
             if test_data:
-                print(f"Lecture test: Temp={test_data[0]:.1f}°C, Hum={test_data[1]:.1f}%, Press={test_data[2]:.1f}hPa")
+                print(f"Lecture test: Temp={test_data[0]:.1f}°C, Hum={test_data[1]:.1f}%, Press={test_data[2]/100:.1f}hPa")
         except Exception as e:
             print(f"Erreur initialisation BME680: {e}")
             self.bme = DummyBME68X()
@@ -51,11 +49,15 @@ class SensorManager:
             return None
 
         try:
-            temp = self.bme.read_temperature()
-            hum = self.bme.read_humidity()
-            press = self.bme.read_pressure()  # en Pa
-            gas = self.bme.read_gas_resistance()
-            return temp, hum, press, gas
+            data = self.bme.read()
+            if data:
+                return (
+                    data.get("temperature", 20.0),    # °C
+                    data.get("humidity", 50.0),       # %
+                    data.get("pressure", 101325),    # Pa
+                    data.get("gas", 100000)          # Ω
+                )
+            return None
         except Exception as e:
             handle_error(e, "Lecture BME680")
             return None
@@ -122,3 +124,20 @@ class SensorManager:
             return "OK", "Capteur BME680 fonctionnel"
         else:
             return "ERREUR", "Capteur en mode factice"
+
+    def get_all_metrics(self):
+        """
+        Retourne un dictionnaire avec toutes les métriques.
+        Format: {"temperature": value, "humidity": value, "pressure": value, "iaq": value}
+        """
+        data = self.read_data()
+        if data:
+            temp, hum, press, gas, iaq = data
+            return {
+                "temperature": temp,
+                "humidity": hum,
+                "pressure": press,
+                "iaq": iaq,
+                "gas": gas
+            }
+        return None

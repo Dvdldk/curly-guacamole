@@ -1,16 +1,21 @@
 # =============================================
 # main.py - Station Météo BME680 + Pico Display
-# Version optimisée avec interface améliorée
+# Version optimisée avec interface améliorée et histogrammes
 # =============================================
 
 from machine import Pin, RTC
 import time
 
 # Importer les modules personnalisés
+from config import (
+    DISPLAY_INTERVAL, SAVE_INTERVAL, SLEEP_TIMEOUT,
+    BUTTON_PINS
+)
 from display import DisplayManager
 from sensor import SensorManager
 from storage import StorageManager
 from menu import MenuManager
+from histogram import HistogramManager
 from utils import (
     COLORS, handle_error, format_timestamp,
     BacklightManager, WIDTH, HEIGHT
@@ -30,6 +35,7 @@ class WeatherStation:
         self.sensor = SensorManager()
         self.storage = StorageManager()
         self.menu = MenuManager(self.display)
+        self.histogram_manager = HistogramManager(self.display)
 
         # Lier le storage au menu pour les actions
         self.menu.storage = self.storage
@@ -45,14 +51,13 @@ class WeatherStation:
         self.last_data_save = 0
         self.last_displayed_data = None
 
-        # Intervalles
-        self.DISPLAY_INTERVAL = 5 * 1000      # 5 secondes
-        self.SAVE_INTERVAL = 300 * 1000        # 5 minutes
-        self.SLEEP_TIMEOUT = 30 * 1000         # 30 secondes d'inactivité
         self.in_sleep_mode = False
 
         # État pour la saisie de l'heure
         self.in_time_input = False
+
+        # État pour la visualisation des histogrammes
+        self.current_histogram_metric = None
 
     def get_timestamp(self):
         """Récupère le timestamp actuel."""
@@ -64,13 +69,8 @@ class WeatherStation:
 
     def get_button_pressed(self):
         """Détecte quel bouton est pressé."""
-        buttons = {
-            Pin(12): "A",
-            Pin(13): "B",
-            Pin(14): "X",
-            Pin(15): "Y"
-        }
-        for pin, button in buttons.items():
+        for pin_num, button in BUTTON_PINS.items():
+            pin = Pin(pin_num)
             pin.init(Pin.IN, Pin.PULL_UP)
             if pin.value() == 0:
                 return button
@@ -84,7 +84,7 @@ class WeatherStation:
 
     def check_sleep_mode(self):
         """Vérifie si l'appareil doit passer en mode veille."""
-        if time.ticks_diff(time.ticks_ms(), self.last_activity_time) > self.SLEEP_TIMEOUT:
+        if time.ticks_diff(time.ticks_ms(), self.last_activity_time) > SLEEP_TIMEOUT:
             if not self.in_sleep_mode:
                 self.enter_sleep_mode()
 
@@ -146,6 +146,7 @@ class WeatherStation:
         if button == "A" and field != "Confirmer":
             # Incrémenter
             self.menu.increment_time_field(field)
+            time_input_state = self.menu.get_time_input_state()
             self.display.show_time_input_screen(
                 field_values=time_input_state["FIELD_VALUES"],
                 current_field_index=current_field_index,
@@ -154,6 +155,7 @@ class WeatherStation:
         elif button == "B" and field != "Confirmer":
             # Décrémenter
             self.menu.decrement_time_field(field)
+            time_input_state = self.menu.get_time_input_state()
             self.display.show_time_input_screen(
                 field_values=time_input_state["FIELD_VALUES"],
                 current_field_index=current_field_index,
@@ -214,6 +216,9 @@ class WeatherStation:
         elif self.in_time_input:
             # Géré dans wait_for_time_input
             pass
+        elif self.current_histogram_metric is not None:
+            # Gérer les boutons dans l'écran d'histogramme
+            self.handle_histogram_button(button)
         else:
             # Écran principal
             if button == "Y":
@@ -231,6 +236,55 @@ class WeatherStation:
                 # Stats 7j
                 stats = self.storage.get_stats(7)
                 self.display.show_stats(stats, 7)
+
+    def handle_histogram_button(self, button):
+        """Gère les appuis sur les boutons dans l'écran d'histogramme."""
+        if button == "Y":
+            # Retour au menu principal
+            self.current_histogram_metric = None
+            self.force_data_refresh()
+        elif button == "X":
+            # Rafraîchir les données de l'histogramme
+            self.refresh_histogram()
+
+    def refresh_histogram(self):
+        """Rafraîchit l'affichage de l'histogramme."""
+        if self.current_histogram_metric:
+            # Récupérer les données récentes
+            recent_data = self.storage.get_recent_data(50)
+
+            # Extraire les valeurs pour la métrique actuelle
+            metric_values = []
+            current_value = None
+
+            # Mapper le nom de la métrique au champ CSV
+            metric_to_field = {
+                "temperature": 1,
+                "humidity": 2,
+                "pressure": 3,
+                "iaq": 5
+            }
+
+            if self.current_histogram_metric in metric_to_field:
+                field_index = metric_to_field[self.current_histogram_metric]
+                for entry in recent_data:
+                    if len(entry) > field_index:
+                        metric_values.append(entry[field_index])
+
+                # Obtenir la valeur actuelle
+                current_metrics = self.sensor.get_all_metrics()
+                if current_metrics and self.current_histogram_metric in current_metrics:
+                    current_value = current_metrics[self.current_histogram_metric]
+
+            # Afficher l'histogramme
+            self.histogram_manager.show_metric_screen(
+                self.current_histogram_metric, metric_values, current_value
+            )
+
+    def show_histogram(self, metric_name):
+        """Affiche l'histogramme pour une métrique donnée."""
+        self.current_histogram_metric = metric_name
+        self.refresh_histogram()
 
     def run(self):
         """Boucle principale de l'application."""
@@ -251,7 +305,7 @@ class WeatherStation:
                 self.handle_button(button)
 
             # Rafraîchir l'affichage toutes les 5 secondes
-            if time.ticks_diff(current_time, self.last_display_update) >= self.DISPLAY_INTERVAL:
+            if time.ticks_diff(current_time, self.last_display_update) >= DISPLAY_INTERVAL:
                 data = self.sensor.read_data()
                 if data:
                     temp, hum, press, gas, iaq = data
@@ -260,7 +314,7 @@ class WeatherStation:
                     self.last_displayed_data = (temp, hum, press, iaq)
 
             # Sauvegarder les données toutes les 5 minutes
-            if time.ticks_diff(current_time, self.last_data_save) >= self.SAVE_INTERVAL:
+            if time.ticks_diff(current_time, self.last_data_save) >= SAVE_INTERVAL:
                 data = self.sensor.read_data()
                 if data:
                     temp, hum, press, gas, iaq = data

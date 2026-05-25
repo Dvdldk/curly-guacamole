@@ -5,15 +5,16 @@
 
 from picographics import PicoGraphics, DISPLAY_PICO_DISPLAY, PEN_RGB565
 from machine import Pin, PWM
+from config import WIDTH, HEIGHT, BACKLIGHT_PIN
 from utils import (
     COLORS, IAQ_COLORS, BAR_COLORS, SYMBOLS, TEXT_SCALES, LAYOUT,
-    WIDTH, HEIGHT, rgb565, clamp, handle_error
+    rgb565, clamp, handle_error, get_metric_display_name, get_metric_unit, get_iaq_color, get_metric_color
 )
 
 class DisplayManager:
     """Gère tout l'affichage sur l'écran Pico Display."""
 
-    def __init__(self, backlight_pin=20):
+    def __init__(self, backlight_pin=BACKLIGHT_PIN):
         # Initialisation de l'écran
         self.display = PicoGraphics(display=DISPLAY_PICO_DISPLAY, pen_type=PEN_RGB565)
         self.WIDTH = WIDTH
@@ -75,12 +76,7 @@ class DisplayManager:
 
         # Couleur de la barre
         if is_iaq:
-            for (low, high), color in IAQ_COLORS.items():
-                if low <= value <= high:
-                    bar_color = color
-                    break
-            else:
-                bar_color = IAQ_COLORS[(351, 500)]
+            bar_color = get_iaq_color(value)
         else:
             bar_color = BAR_COLORS.get(label.lower(), COLORS["TEXT"])
 
@@ -136,7 +132,7 @@ class DisplayManager:
 
         # Afficher l'état du capteur
         self.display.set_pen(COLORS["SUCCESS"])
-        self.display.text("\u2713 Capteur OK", self.WIDTH - 80, 5, self.WIDTH, TEXT_SCALES["small"])
+        self.display.text("✓ Capteur OK", self.WIDTH - 80, 5, self.WIDTH, TEXT_SCALES["small"])
 
         # Position Y pour les barres
         bar_y_positions = [30, 65, 100, 135 - LAYOUT["bar_height"] - 5]
@@ -148,7 +144,7 @@ class DisplayManager:
             value=temp,
             min_val=self.historical_min_max["temp"]["min"],
             max_val=self.historical_min_max["temp"]["max"],
-            unit="\u2103"
+            unit="°C"
         )
 
         self.draw_horizontal_bar(
@@ -241,7 +237,7 @@ class DisplayManager:
 
         # Titre
         self.display.set_pen(COLORS["WARNING"])
-        self.display.text("\u26A0 Confirmation", LAYOUT["margin_left"], 5, self.WIDTH, TEXT_SCALES["title"])
+        self.display.text("⚠ Confirmation", LAYOUT["margin_left"], 5, self.WIDTH, TEXT_SCALES["title"])
 
         # Message
         self.display.set_pen(COLORS["TEXT"])
@@ -270,20 +266,12 @@ class DisplayManager:
             if values['min'] is not None:
                 # Nom de la métrique
                 self.display.set_pen(COLORS["SUBTITLE"])
-                display_key = key.capitalize()
-                if key == "temperature":
-                    display_key = "Température"
-                elif key == "humidity":
-                    display_key = "Humidité"
-                elif key == "pressure":
-                    display_key = "Pression"
-                elif key == "iaq":
-                    display_key = "IAQ"
+                display_key = get_metric_display_name(key)
                 self.display.text(f"{display_key}:", LAYOUT["margin_left"], y_pos, self.WIDTH, TEXT_SCALES["label"])
 
                 # Valeurs
                 self.display.set_pen(COLORS["TEXT"])
-                unit = "\u2103" if key == "temperature" else "%" if key == "humidity" else "hPa" if key == "pressure" else ""
+                unit = get_metric_unit(key)
                 stats_text = f"Min:{values['min']:.1f}{unit} Max:{values['max']:.1f}{unit} Moy:{values['avg']:.1f}{unit}"
                 self.display.text(stats_text, LAYOUT["margin_left"], y_pos + 15, self.WIDTH, TEXT_SCALES["small"])
 
@@ -353,11 +341,7 @@ class DisplayManager:
                 color = COLORS["TEXT"]
 
             self.display.set_pen(color)
-            if field == "Confirmer":
-                self.display.text(f"{field}: {value}", LAYOUT["margin_left"], y_pos, self.WIDTH, TEXT_SCALES["value"])
-            else:
-                self.display.text(f"{field}: {value}", LAYOUT["margin_left"], y_pos, self.WIDTH, TEXT_SCALES["value"])
-
+            self.display.text(f"{field}: {value}", LAYOUT["margin_left"], y_pos, self.WIDTH, TEXT_SCALES["value"])
             y_pos += 25
 
         # Légende

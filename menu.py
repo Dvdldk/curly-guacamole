@@ -3,6 +3,7 @@
 # Menu hiérarchique et gestion des actions
 # =============================================
 
+from config import METRIC_NAMES
 from utils import handle_error, COLORS
 
 class MenuManager:
@@ -26,6 +27,7 @@ class MenuManager:
                     {"label": "Effacer données", "action": "confirm_clear_data"},
                     {"label": "Régler heure", "action": "confirm_set_time"},
                     {"label": "Statistiques", "submenu": "stats"},
+                    {"label": "Visualiser", "submenu": "visualize"},
                     {"label": "À propos", "action": "show_about"},
                 ]
             },
@@ -35,6 +37,15 @@ class MenuManager:
                     {"label": "24 heures", "action": "show_stats_24h"},
                     {"label": "7 jours", "action": "show_stats_7d"},
                     {"label": "30 jours", "action": "show_stats_30d"},
+                ]
+            },
+            "visualize": {
+                "title": "Visualiser",
+                "items": [
+                    {"label": "Température", "action": "show_histogram_temp"},
+                    {"label": "Humidité", "action": "show_histogram_hum"},
+                    {"label": "Pression", "action": "show_histogram_press"},
+                    {"label": "IAQ", "action": "show_histogram_iaq"},
                 ]
             }
         }
@@ -50,6 +61,10 @@ class MenuManager:
             "show_stats_7d": lambda: self.action_show_stats(7),
             "show_stats_30d": lambda: self.action_show_stats(30),
             "show_about": self.action_show_about,
+            "show_histogram_temp": lambda: self.action_show_histogram("temperature"),
+            "show_histogram_hum": lambda: self.action_show_histogram("humidity"),
+            "show_histogram_press": lambda: self.action_show_histogram("pressure"),
+            "show_histogram_iaq": lambda: self.action_show_histogram("iaq"),
         }
 
         # État pour la saisie de l'heure
@@ -210,6 +225,44 @@ class MenuManager:
         """Action: Afficher la page 'À propos'."""
         about_text = "Station Météo\nBME680 + Pico\nv1.0\n\nCapteurs:\n- Température\n- Humidité\n- Pression\n- IAQ"
         self.display.show_message(about_text, COLORS["INFO"])
+
+    def action_show_histogram(self, metric_name):
+        """Action: Afficher l'histogramme pour une métrique."""
+        if hasattr(self, 'storage') and hasattr(self, 'station'):
+            # Récupérer les données récentes
+            recent_data = self.storage.get_recent_data(50)
+
+            # Extraire les valeurs pour la métrique demandée
+            metric_values = []
+            current_value = None
+
+            # Mapper le nom de la métrique au champ CSV
+            metric_to_field = {
+                "temperature": 1,
+                "humidity": 2,
+                "pressure": 3,
+                "iaq": 5
+            }
+
+            if metric_name in metric_to_field:
+                field_index = metric_to_field[metric_name]
+                for entry in recent_data:
+                    if len(entry) > field_index:
+                        metric_values.append(entry[field_index])
+
+                # Obtenir la valeur actuelle
+                if hasattr(self.station, 'sensor'):
+                    current_metrics = self.station.sensor.get_all_metrics()
+                    if current_metrics and metric_name in current_metrics:
+                        current_value = current_metrics[metric_name]
+
+            # Afficher l'histogramme
+            if hasattr(self.station, 'histogram_manager'):
+                self.station.histogram_manager.show_metric_screen(
+                    metric_name, metric_values, current_value
+                )
+
+            self.in_menu = False
 
     # --- Gestion de la saisie de l'heure ---
 

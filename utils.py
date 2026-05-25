@@ -5,10 +5,7 @@
 
 from machine import Pin, PWM
 import time
-
-# --- Constantes globales ---
-WIDTH = 240
-HEIGHT = 135
+from config import WIDTH, HEIGHT, SENSOR_RANGES, UNITS, METRIC_NAMES, METRIC_COLORS
 
 # --- Gestion des couleurs RGB565 ---
 def rgb565(r, g, b):
@@ -51,6 +48,8 @@ COLORS = {
     "GRAY_DARK": rgb565(50, 50, 50),   # Gris foncé
     "GRAY_MEDIUM": rgb565(100, 100, 100), # Gris moyen
     "GRAY_LIGHT": rgb565(150, 150, 150), # Gris clair
+    "HISTOGRAM_BG": rgb565(30, 30, 40), # Fond histogramme
+    "HISTOGRAM_GRID": rgb565(80, 80, 100), # Grille histogramme
 }
 
 # --- Palette IAQ avec dégradé visuel ---
@@ -69,6 +68,7 @@ BAR_COLORS = {
     "temp": COLORS["TEMP"],
     "hum": COLORS["HUM"],
     "press": COLORS["PRESS"],
+    "iaq": COLORS["IAQ_GOOD"],
 }
 
 # --- Symboles Unicode pour l'affichage ---
@@ -80,9 +80,6 @@ SYMBOLS = {
     "check": "\u2713",  # ✓
     "cross": "\u2717", # ✗
     "arrow_right": "\u2192", # →
-    "thermometer": "\u1F321", # 🌡️ (peut ne pas être supporté)
-    "droplet": "\u1F4A7",      # 💧
-    "gauge": "\u1F3F8",        # 🏸 (approximation)
 }
 
 # --- Gestion du rétroéclairage ---
@@ -156,17 +153,31 @@ def map_value(value, in_min, in_max, out_min, out_max):
 
 def is_valid_sensor_value(value_type, value):
     """Vérifie si une valeur de capteur est valide."""
-    ranges = {
-        "temp": (0, 50),      # °C
-        "hum": (0, 100),      # %
-        "press": (900, 1100), # hPa
-        "gas": (0, 1000000),  # Résistance gaz (ohms)
-        "iaq": (0, 500),      # Indice qualité air
-    }
-    if value_type in ranges:
-        min_val, max_val = ranges[value_type]
+    if value_type in SENSOR_RANGES:
+        min_val, max_val = SENSOR_RANGES[value_type]
         return min_val <= value <= max_val
     return True
+
+def get_iaq_color(iaq_value):
+    """Retourne la couleur correspondante à une valeur d'IAQ."""
+    for (low, high), color in IAQ_COLORS.items():
+        if low <= iaq_value <= high:
+            return color
+    return IAQ_COLORS[(351, 500)]  # Rouge foncé par défaut
+
+def get_metric_color(metric_name):
+    """Retourne la couleur par défaut pour une métrique."""
+    if metric_name in METRIC_COLORS:
+        return COLORS[METRIC_COLORS[metric_name]]
+    return COLORS["TEXT"]
+
+def get_metric_unit(metric_name):
+    """Retourne l'unité d'une métrique."""
+    return UNITS.get(metric_name, "")
+
+def get_metric_display_name(metric_name):
+    """Retourne le nom affichable d'une métrique."""
+    return METRIC_NAMES.get(metric_name, metric_name)
 
 # --- Constantes pour les tailles de texte ---
 TEXT_SCALES = {

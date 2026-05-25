@@ -5,35 +5,23 @@
 
 import uos
 import time
-from utils import handle_error, COLORS, format_timestamp
+from config import (
+    DATA_FILE, BACKUP_FILE, TEMP_FILE, CSV_HEADER, LINE_FORMAT,
+    MAX_FILE_SIZE, CACHE_INTERVAL, STATS_INTERVAL
+)
+from utils import handle_error, COLORS
 
 class StorageManager:
     """Gère le stockage des données en CSV avec sauvegarde atomique."""
 
     def __init__(self):
-        # Configuration du stockage
-        self.MAX_FLASH_USAGE = 0.7  # 70% max de l'espace flash
-        self.FLASH_SIZE = 2 * 1024 * 1024  # 2 Mo
-        self.MAX_FILE_SIZE = int(self.MAX_FLASH_USAGE * self.FLASH_SIZE)
-
-        # Noms des fichiers
-        self.DATA_FILE = "data.csv"
-        self.BACKUP_FILE = "data_backup.csv"
-        self.TEMP_FILE = "data_temp.csv"
-
-        # En-tête CSV
-        self.CSV_HEADER = "timestamp,temperature,humidity,pressure,gas,iaq\n"
-        self.LINE_FORMAT = "{},{:.2f},{:.2f},{:.2f},{},{}\n"
-
         # Cache des données
         self.data_cache = []
         self.last_cache_update = 0
-        self.CACHE_INTERVAL = 60 * 1000  # 1 minute
 
         # Cache des stats
         self.stats_cache = {}
         self.last_stats_update = 0
-        self.STATS_INTERVAL = 10 * 60 * 1000  # 10 minutes
 
         # Initialisation
         self.init_storage()
@@ -41,11 +29,11 @@ class StorageManager:
     def init_storage(self):
         """Initialise le stockage (crée le fichier CSV si nécessaire)."""
         try:
-            uos.stat(self.DATA_FILE)
+            uos.stat(DATA_FILE)
         except OSError:
             try:
-                with open(self.DATA_FILE, "w") as f:
-                    f.write(self.CSV_HEADER)
+                with open(DATA_FILE, "w") as f:
+                    f.write(CSV_HEADER)
                 print("Fichier CSV créé.")
             except Exception as e:
                 handle_error(e, "Création CSV")
@@ -72,7 +60,7 @@ class StorageManager:
     def get_space_used_percent(self):
         """Retourne le pourcentage d'espace utilisé par le fichier CSV."""
         try:
-            file_size = self.get_file_size(self.DATA_FILE)
+            file_size = self.get_file_size(DATA_FILE)
             total_space = self.get_free_space() + file_size
             return (file_size / total_space) * 100 if total_space > 0 else 0.0
         except:
@@ -81,7 +69,7 @@ class StorageManager:
     def get_line_count(self):
         """Retourne le nombre de lignes de données (hors en-tête)."""
         try:
-            with open(self.DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r") as f:
                 return len(f.readlines()) - 1
         except OSError:
             return 0
@@ -89,9 +77,9 @@ class StorageManager:
     def check_csv_integrity(self):
         """Vérifie l'intégrité du fichier CSV."""
         try:
-            with open(self.DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r") as f:
                 lines = f.readlines()
-                if len(lines) < 1 or lines[0].strip() != self.CSV_HEADER.strip():
+                if len(lines) < 1 or lines[0].strip() != CSV_HEADER.strip():
                     return False
                 for line in lines[1:]:
                     if len(line.strip().split(',')) != 6:
@@ -104,7 +92,7 @@ class StorageManager:
         """Répare le fichier CSV en supprimant les lignes corrompues."""
         if not self.check_csv_integrity():
             try:
-                with open(self.DATA_FILE, "r") as f:
+                with open(DATA_FILE, "r") as f:
                     lines = f.readlines()
 
                 # Garder seulement les lignes valides
@@ -114,7 +102,7 @@ class StorageManager:
                         valid_lines.append(line)
 
                 # Réécrire le fichier
-                with open(self.DATA_FILE, "w") as f:
+                with open(DATA_FILE, "w") as f:
                     f.writelines(valid_lines)
                 print("Fichier CSV réparé.")
                 return True
@@ -129,32 +117,32 @@ class StorageManager:
         """
         try:
             # Vérifier la taille avant d'écrire
-            current_size = self.get_file_size(self.DATA_FILE)
-            if (current_size + 100) >= self.MAX_FILE_SIZE:
+            current_size = self.get_file_size(DATA_FILE)
+            if (current_size + 100) >= MAX_FILE_SIZE:
                 self.cleanup_old_entries()
 
             # Écrire dans un fichier temporaire d'abord
-            with open(self.TEMP_FILE, "w") as f:
-                f.write(self.CSV_HEADER)
+            with open(TEMP_FILE, "w") as f:
+                f.write(CSV_HEADER)
                 # Copier les anciennes données si le fichier existe
                 try:
-                    with open(self.DATA_FILE, "r") as old_f:
+                    with open(DATA_FILE, "r") as old_f:
                         f.write(old_f.read())
                 except OSError:
                     pass
                 # Ajouter la nouvelle ligne
-                line = self.LINE_FORMAT.format(timestamp, temp, humidity, pressure, gas, iaq)
+                line = LINE_FORMAT.format(timestamp, temp, humidity, pressure, gas, iaq)
                 f.write(line)
 
             # Vérifier la taille avant de renommer
-            temp_size = self.get_file_size(self.TEMP_FILE)
-            if temp_size <= self.MAX_FILE_SIZE:
-                uos.remove(self.DATA_FILE)
-                uos.rename(self.TEMP_FILE, self.DATA_FILE)
+            temp_size = self.get_file_size(TEMP_FILE)
+            if temp_size <= MAX_FILE_SIZE:
+                uos.remove(DATA_FILE)
+                uos.rename(TEMP_FILE, DATA_FILE)
                 # Mettre à jour le cache
                 self.update_cache()
             else:
-                uos.remove(self.TEMP_FILE)
+                uos.remove(TEMP_FILE)
                 self.cleanup_old_entries()
                 # Réessayer
                 self.write_data(timestamp, temp, humidity, pressure, gas, iaq)
@@ -162,31 +150,31 @@ class StorageManager:
             handle_error(e, "Écriture CSV")
             # Nettoyer le fichier temporaire
             try:
-                uos.remove(self.TEMP_FILE)
+                uos.remove(TEMP_FILE)
             except:
                 pass
 
     def cleanup_old_entries(self):
         """Nettoie les anciennes entrées pour libérer de l'espace."""
-        current_size = self.get_file_size(self.DATA_FILE)
-        if current_size >= self.MAX_FILE_SIZE:
+        current_size = self.get_file_size(DATA_FILE)
+        if current_size >= MAX_FILE_SIZE:
             try:
-                with open(self.DATA_FILE, "r") as f:
+                with open(DATA_FILE, "r") as f:
                     lines = f.readlines()[1:]  # Ignorer l'en-tête
 
                 if not lines:
                     return
 
                 avg_line_size = current_size / len(lines) if lines else 100
-                max_lines = int((self.MAX_FILE_SIZE * 0.9) / avg_line_size)
+                max_lines = int((MAX_FILE_SIZE * 0.9) / avg_line_size)
 
                 if max_lines < len(lines):
                     lines_to_keep = lines[-max_lines:]
-                    with open(self.BACKUP_FILE, "w") as f_backup:
-                        f_backup.write(self.CSV_HEADER)
+                    with open(BACKUP_FILE, "w") as f_backup:
+                        f_backup.write(CSV_HEADER)
                         f_backup.writelines(lines_to_keep)
-                    uos.remove(self.DATA_FILE)
-                    uos.rename(self.BACKUP_FILE, self.DATA_FILE)
+                    uos.remove(DATA_FILE)
+                    uos.rename(BACKUP_FILE, DATA_FILE)
                     print(f"Nettoyage: {len(lines) - max_lines} lignes supprimées.")
             except OSError as e:
                 handle_error(e, "Nettoyage CSV")
@@ -194,7 +182,7 @@ class StorageManager:
     def update_cache(self):
         """Met à jour le cache des données."""
         try:
-            with open(self.DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r") as f:
                 self.data_cache = f.readlines()[1:]  # Ignorer l'en-tête
             self.last_cache_update = time.ticks_ms()
         except OSError:
@@ -202,9 +190,36 @@ class StorageManager:
 
     def get_cached_data(self):
         """Retourne les données en cache (met à jour si nécessaire)."""
-        if time.ticks_diff(time.ticks_ms(), self.last_cache_update) > self.CACHE_INTERVAL:
+        if time.ticks_diff(time.ticks_ms(), self.last_cache_update) > CACHE_INTERVAL:
             self.update_cache()
         return self.data_cache
+
+    def get_recent_data(self, n_entries=50):
+        """
+        Retourne les n dernières entrées de données.
+        Format: [(timestamp, temp, hum, press, gas, iaq), ...]
+        """
+        try:
+            with open(DATA_FILE, "r") as f:
+                lines = f.readlines()[1:]  # Ignorer l'en-tête
+                data = []
+                for line in lines[-n_entries:]:
+                    parts = line.strip().split(',')
+                    if len(parts) == 6:
+                        try:
+                            data.append((
+                                parts[0],  # timestamp
+                                float(parts[1]),  # temperature
+                                float(parts[2]),  # humidity
+                                float(parts[3]),  # pressure
+                                int(parts[4]),    # gas
+                                int(parts[5])     # iaq
+                            ))
+                        except (ValueError, IndexError):
+                            continue
+                return data
+        except OSError:
+            return []
 
     def get_stats(self, n_days):
         """
@@ -225,7 +240,7 @@ class StorageManager:
         }
 
         try:
-            with open(self.DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r") as f:
                 lines = f.readlines()[1:]
                 for line in lines:
                     parts = line.strip().split(',')
@@ -286,7 +301,7 @@ class StorageManager:
     def get_cached_stats(self, n_days):
         """Retourne les stats en cache (met à jour si nécessaire)."""
         cache_key = f"{n_days}d"
-        if (time.ticks_diff(time.ticks_ms(), self.last_stats_update) > self.STATS_INTERVAL or
+        if (time.ticks_diff(time.ticks_ms(), self.last_stats_update) > STATS_INTERVAL or
             cache_key not in self.stats_cache):
             self.update_stats_cache()
         return self.stats_cache.get(cache_key, self.get_stats(n_days))
@@ -303,7 +318,7 @@ class StorageManager:
     def erase_data(self):
         """Efface toutes les données."""
         try:
-            uos.remove(self.DATA_FILE)
+            uos.remove(DATA_FILE)
             self.init_storage()
             self.data_cache = []
             self.stats_cache = {}
@@ -315,4 +330,4 @@ class StorageManager:
 
     def export_data(self):
         """Prépare les données pour l'export (retourne le chemin du fichier)."""
-        return self.DATA_FILE
+        return DATA_FILE
